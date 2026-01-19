@@ -1,0 +1,47 @@
+name: SDVX.in Scraper
+
+on:
+  schedule:
+    - cron: '0 0 1,15 * *' # 매월 1일, 15일 실행
+  workflow_dispatch:
+
+jobs:
+  run-sdvxin-scraper:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      # scrap.py에 필요한 라이브러리 설치
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests beautifulsoup4
+
+      # 작업 디렉토리를 sdvxin_scraper로 설정
+      - name: Run SDVX.in Scraper
+        working-directory: ./sdvxin_scraper
+        run: |
+          python scrap.py
+
+      - name: Commit and push changes
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          
+          # sdvxin_scraper 폴더 내의 결과 파일 추가
+          git add sdvxin_scraper/sdvxin_data.csv
+          
+          if git diff --staged --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "Update sdvxin_data.csv (SDVX.in)"
+            git push
+          fi
