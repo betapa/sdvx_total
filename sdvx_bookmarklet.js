@@ -1,11 +1,10 @@
 const CONFIG = {
-    owner: 'betapa',
-    repo: 'sdvx_total',
-    path: 'sdvx_playdata.csv'
+    owner: 'betapa',      
+    repo: 'sdvx_total',   
+    path: 'sdvx_playdata.csv' 
 };
 
 (async function() {
-    // 0. 토큰 확인
     let token = localStorage.getItem('GH_TOKEN');
     if (!token) {
         token = prompt("GitHub Personal Access Token을 입력해주세요.\n(repo 권한 필요)");
@@ -14,11 +13,11 @@ const CONFIG = {
     }
 
     const UI = {
-        log: (msg) => console.log(`[SDVX] ${msg}`),
+        log: (msg) => console.log(`%c[SDVX] ${msg}`, 'color: cyan; font-weight: bold;'),
+        error: (msg) => console.log(`%c[SDVX Error] ${msg}`, 'color: red; font-weight: bold;'),
         alert: (msg) => alert(`[SDVX Helper]\n${msg}`)
     };
 
-    // Python의 get_random_sleep(600, 1100) 구현
     const randomSleep = (min, max) => {
         const ms = Math.floor(Math.random() * (max - min + 1) + min);
         return new Promise(resolve => setTimeout(resolve, ms));
@@ -30,50 +29,59 @@ const CONFIG = {
         const limit = 150; 
         const baseUrl = "https://p.eagate.573.jp/game/sdvx/vii/playdata/musicdata/index.html";
 
-        // 1. 첫 페이지 로드 및 전체 페이지 수 확인
-        // 캐시 방지를 위해 timestamp 추가
-        const firstPageRes = await fetch(`${baseUrl}?limit=${limit}&sort=0&page=1&_t=${Date.now()}`);
+        const firstPageRes = await fetch(`${baseUrl}?limit=${limit}&sort=0&page=1&_t=${Date.now()}`, {
+            credentials: 'include' // 쿠키 포함 강제
+        });
         const firstPageText = await firstPageRes.text();
         
         const parser = new DOMParser();
         const doc = parser.parseFromString(firstPageText, 'text/html');
 
-        // Python 로직: matches[-1] (마지막 페이지 번호 추출)
-        const pageSpans = doc.querySelectorAll('span.page_num');
         let maxPage = 1;
+        const pageSpans = doc.querySelectorAll('span.page_num');
         if (pageSpans.length > 0) {
-            const lastSpan = pageSpans[pageSpans.length - 1];
-            maxPage = parseInt(lastSpan.textContent, 10) || 1;
+            const lastNum = pageSpans[pageSpans.length - 1].textContent;
+            maxPage = parseInt(lastNum, 10) || 1;
+        } else {
+            const pagingBox = doc.querySelector('div.paging_box'); 
+            if (pagingBox) {
+                const txt = pagingBox.textContent;
+                const matches = txt.match(/\/([0-9]+)/);
+                if (matches) maxPage = parseInt(matches[1], 10);
+            }
         }
 
-        UI.log(`총 ${maxPage} 페이지를 발견했습니다.`);
+        UI.log(`파싱된 총 페이지 수: ${maxPage}`);
+        if (maxPage === 1 && pageSpans.length === 0) {
+            UI.error("경고: 페이지 번호를 찾지 못했습니다. 로그인이 풀려있거나 HTML 구조가 변경되었을 수 있습니다.");
+            console.log("DEBUG HTML:", firstPageText.substring(0, 500)); 
+        }
 
         let allRecords = [];
 
-        // 2. 데이터 파싱 함수 (Python 로직 이식)
+        // 데이터 파싱 함수
         const parseRecords = (htmlText) => {
             const doc = new DOMParser().parseFromString(htmlText, 'text/html');
             const rows = doc.querySelectorAll('tr.data_col');
             const pageData = [];
 
-            // Python의 diff_map
+            // 로그인 풀림 체크
+            if (htmlText.includes("login") || htmlText.includes("e-amusement gate")) {
+                UI.error("로그인이 필요한 페이지가 감지되었습니다. (세션 만료 가능성)");
+                return [];
+            }
+
             const diffMap = { 
-                'novice': 'NOV', 
-                'advanced': 'ADV', 
-                'exhaust': 'EXH', 
-                'maximum': 'MXM', 
-                'infinite': 'INF', 
-                'ultimate': 'ULT' 
+                'novice': 'NOV', 'advanced': 'ADV', 'exhaust': 'EXH', 
+                'maximum': 'MXM', 'infinite': 'INF', 'ultimate': 'ULT' 
             };
 
             rows.forEach(row => {
                 try {
-                    // 곡 제목
                     const titleElem = row.querySelector('.music .title a');
                     if (!titleElem) return;
                     const title = titleElem.textContent.trim();
                     
-                    // 아티스트
                     const artistElem = row.querySelector('.music .artist');
                     const artist = artistElem ? artistElem.textContent.trim() : "";
 
@@ -82,15 +90,13 @@ const CONFIG = {
                         if (!td) continue;
 
                         const scoreText = td.textContent.trim();
-                        // 점수가 0이면 스킵
                         if (scoreText === '0') continue;
 
-                        // 램프 분석
                         let lamp = "PLAYED";
                         const markImg = td.querySelector('img[src*="mark"]');
                         if (markImg) {
                             const src = markImg.src;
-                            if (src.includes('mark_no')) continue; // 플레이 안 함
+                            if (src.includes('mark_no')) continue;
                             else if (src.includes('per')) lamp = "PUC";
                             else if (src.includes('uc')) lamp = "UC";
                             else if (src.includes('comp_ex')) lamp = "EXC CLEAR";
@@ -98,7 +104,6 @@ const CONFIG = {
                             else if (src.includes('play')) lamp = "FAILED";
                         }
 
-                        // 등급 분석
                         let grade = "-";
                         const gradeImg = td.querySelector('img[src*="grade"]');
                         if (gradeImg) {
@@ -115,51 +120,60 @@ const CONFIG = {
                             else if (src.includes('d')) grade = "D";
                         }
 
-                        pageData.push({ 
-                            Title: title, 
-                            Artist: artist, 
-                            Difficulty: label, 
-                            Score: scoreText, 
-                            Grade: grade, 
-                            Lamp: lamp 
-                        });
+                        pageData.push({ Title: title, Artist: artist, Difficulty: label, Score: scoreText, Grade: grade, Lamp: lamp });
                     }
                 } catch (e) { console.error("Row parsing error:", e); }
             });
             return pageData;
         };
 
-        // 3. 페이지 순회 (1페이지부터 maxPage까지)
+        // 3. 페이지 순회
         for (let i = 1; i <= maxPage; i++) {
-            UI.log(`[${i}/${maxPage}] 데이터 수집 중...`);
-            document.title = `[${i}/${maxPage}] 수집 중...`; // 탭 제목 업데이트
+            UI.log(`[${i}/${maxPage}] 데이터 요청 중...`);
+            document.title = `[${i}/${maxPage}] 수집 중...`; 
 
             let html = "";
-            // 1페이지는 이미 받아왔으므로 재사용 (Python 코드: if k == 1 logic)
+            
             if (i === 1) {
                 html = firstPageText;
             } else {
-                // 페이지 로드 (캐시 방지용 timestamp 추가)
-                const res = await fetch(`${baseUrl}?limit=${limit}&sort=0&page=${i}&_t=${Date.now()}`);
-                if (!res.ok) {
-                    UI.log(`  -> ${i}페이지 로드 실패: ${res.status}`);
+                try {
+                    const res = await fetch(`${baseUrl}?limit=${limit}&sort=0&page=${i}&_t=${Date.now()}`, {
+                        credentials: 'include'
+                    });
+                    
+                    if (!res.ok) {
+                        UI.error(`  -> ${i}페이지 HTTP 오류: ${res.status}`);
+                        continue;
+                    }
+                    html = await res.text();
+                } catch (fetchErr) {
+                    UI.error(`  -> ${i}페이지 네트워크 오류: ${fetchErr}`);
                     continue;
                 }
-                html = await res.text();
             }
 
             const pData = parseRecords(html);
+            
+            // 디버깅: 각 페이지별 추출 개수 로그
             if (pData.length === 0) {
-                UI.log(`  -> 경고: ${i}페이지 기록 0개`);
+                UI.error(`  -> ${i}페이지에서 데이터를 찾지 못했습니다. (HTML 구조 확인 필요)`);
+                // 빈 데이터가 나오면 HTML 일부를 찍어서 확인
+                // console.log(html.substring(0, 500)); 
             } else {
+                UI.log(`  -> ${i}페이지: ${pData.length}개 기록 추출 완료`);
                 allRecords.push(...pData);
-                UI.log(`  -> ${pData.length}개 추출 완료`);
             }
 
-            // Python과 동일하게 랜덤 대기 (서버 부하 방지)
             if (i < maxPage) {
                 await randomSleep(600, 1100);
             }
+        }
+
+        UI.log(`총 수집된 기록 수: ${allRecords.length}`);
+
+        if (allRecords.length === 0) {
+            return UI.alert("수집된 데이터가 없습니다. 콘솔(F12)을 확인해주세요.");
         }
 
         // 4. CSV 생성
@@ -170,7 +184,7 @@ const CONFIG = {
         });
 
         // 5. GitHub 업로드
-        UI.log("GitHub에 업로드 중...");
+        UI.log("GitHub에 업로드 준비 중...");
         const apiUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}`;
         
         let sha = "";
@@ -184,7 +198,6 @@ const CONFIG = {
             }
         } catch(e) {}
 
-        // UTF-8 인코딩
         const utf8Encoder = new TextEncoder();
         const csvBytes = utf8Encoder.encode(csvContent);
         let binaryString = "";
@@ -198,14 +211,14 @@ const CONFIG = {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                message: `Update play data via Bookmarklet (${new Date().toLocaleDateString()})`,
+                message: `Update play data (${allRecords.length} records) via Bookmarklet`,
                 content: contentBase64,
                 sha: sha ? sha : undefined
             })
         });
 
         if (putRes.ok) {
-            UI.alert(`완료! 총 ${allRecords.length}곡의 기록이 업데이트되었습니다.`);
+            UI.alert(`완료! 총 ${allRecords.length}곡 업데이트 성공.`);
             document.title = "완료!";
         } else {
             const errTxt = await putRes.text();
@@ -213,7 +226,7 @@ const CONFIG = {
         }
 
     } catch (err) {
-        UI.alert(`오류 발생: ${err}`);
+        UI.alert(`치명적 오류 발생: ${err}`);
         console.error(err);
     }
 })();
