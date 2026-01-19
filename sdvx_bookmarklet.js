@@ -1,11 +1,10 @@
 const CONFIG = {
-    owner: 'betapa',      // 예: gil-dong
-    repo: 'sdvx_total',   // 예: sdvx-data
-    path: 'userdata_scraper/sdvx_playdata.csv' // 저장할 파일명
+    owner: 'betapa',
+    repo: 'sdvx_total',
+    path: 'userdata_scraper/sdvx_playdata.csv'
 };
 
 (async function() {
-    // 0. 토큰 확인
     let token = localStorage.getItem('GH_TOKEN');
     if (!token) {
         token = prompt("GitHub Personal Access Token을 입력해주세요.\n(repo 권한 필요)");
