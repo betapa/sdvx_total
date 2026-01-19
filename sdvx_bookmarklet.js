@@ -1,7 +1,7 @@
 const CONFIG = {
     owner: 'betapa',      // 예: gil-dong
     repo: 'sdvx_total',   // 예: sdvx-data
-    path: 'sdvx_playdata.csv' // 저장할 파일명
+    path: 'userdata_scraper/sdvx_playdata.csv' // 저장할 파일명
 };
 
 (async function() {
