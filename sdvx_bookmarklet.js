@@ -1,10 +1,11 @@
 const CONFIG = {
-    owner: 'betapa',      
-    repo: 'sdvx_total',   
-    path: 'sdvx_playdata.csv' 
+    owner: 'betapa',      // 예: gil-dong
+    repo: 'sdvx_total',   // 예: sdvx-data
+    path: 'sdvx_playdata.csv' // 저장할 파일명
 };
 
 (async function() {
+    // 0. 토큰 확인
     let token = localStorage.getItem('GH_TOKEN');
     if (!token) {
         token = prompt("GitHub Personal Access Token을 입력해주세요.\n(repo 권한 필요)");
@@ -13,8 +14,8 @@ const CONFIG = {
     }
 
     const UI = {
-        log: (msg) => console.log(`%c[SDVX] ${msg}`, 'color: cyan; font-weight: bold;'),
-        error: (msg) => console.log(`%c[SDVX Error] ${msg}`, 'color: red; font-weight: bold;'),
+        log: (msg) => console.log(`[SDVX] ${msg}`),
+        error: (msg) => console.error(`[SDVX Error] ${msg}`),
         alert: (msg) => alert(`[SDVX Helper]\n${msg}`)
     };
 
@@ -29,52 +30,48 @@ const CONFIG = {
         const limit = 150; 
         const baseUrl = "https://p.eagate.573.jp/game/sdvx/vii/playdata/musicdata/index.html";
 
-        const firstPageRes = await fetch(`${baseUrl}?limit=${limit}&sort=0&page=1&_t=${Date.now()}`, {
-            credentials: 'include' // 쿠키 포함 강제
-        });
+        // ============================================================
+        // [핵심 수정 1] 쿠키 포함을 위한 공통 헤더 설정
+        // credentials: 'include'가 있어야 로그인 세션이 유지됩니다.
+        // ============================================================
+        const fetchOptions = {
+            method: 'GET',
+            credentials: 'include', // <--- 가장 중요한 부분 (쿠키 전송)
+        };
+
+        // 1. 첫 페이지 로드 및 전체 페이지 수 확인
+        const firstPageUrl = `${baseUrl}?limit=${limit}&sort=0&page=1&_t=${Date.now()}`;
+        const firstPageRes = await fetch(firstPageUrl, fetchOptions);
         const firstPageText = await firstPageRes.text();
         
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(firstPageText, 'text/html');
+        // [디버깅] 첫 페이지가 로그인 페이지인지 확인
+        if (firstPageText.includes("login_form") || firstPageText.includes("ea_common_login")) {
+            UI.error("세션이 만료되었거나 로그인이 풀려있습니다. e-amusement에 다시 로그인해주세요.");
+            UI.alert("오류: 로그인 세션을 가져오지 못했습니다. 페이지를 새로고침 후 다시 로그인하고 시도해주세요.");
+            return;
+        }
 
+        // [핵심 수정 2] 페이지 수 파싱 로직 강화 (Regex 사용)
+        // DOM 파싱보다 HTML 텍스트에서 직접 'page=숫자' 패턴을 찾는 것이 더 안전합니다.
         let maxPage = 1;
-        const pageSpans = doc.querySelectorAll('span.page_num');
-        if (pageSpans.length > 0) {
-            const lastNum = pageSpans[pageSpans.length - 1].textContent;
-            maxPage = parseInt(lastNum, 10) || 1;
-        } else {
-            const pagingBox = doc.querySelector('div.paging_box'); 
-            if (pagingBox) {
-                const txt = pagingBox.textContent;
-                const matches = txt.match(/\/([0-9]+)/);
-                if (matches) maxPage = parseInt(matches[1], 10);
-            }
+        // href="...page=12" 같은 패턴을 모두 찾아서 가장 큰 숫자를 선택
+        const pageMatches = [...firstPageText.matchAll(/page=(\d+)/g)];
+        if (pageMatches.length > 0) {
+            const pages = pageMatches.map(m => parseInt(m[1], 10));
+            maxPage = Math.max(...pages);
         }
 
-        UI.log(`파싱된 총 페이지 수: ${maxPage}`);
-        if (maxPage === 1 && pageSpans.length === 0) {
-            UI.error("경고: 페이지 번호를 찾지 못했습니다. 로그인이 풀려있거나 HTML 구조가 변경되었을 수 있습니다.");
-            console.log("DEBUG HTML:", firstPageText.substring(0, 500)); 
-        }
+        UI.log(`총 ${maxPage} 페이지를 발견했습니다. (파싱된 페이지: ${maxPage})`);
 
         let allRecords = [];
 
-        // 데이터 파싱 함수
+        // 2. 데이터 파싱 함수
         const parseRecords = (htmlText) => {
             const doc = new DOMParser().parseFromString(htmlText, 'text/html');
             const rows = doc.querySelectorAll('tr.data_col');
             const pageData = [];
 
-            // 로그인 풀림 체크
-            if (htmlText.includes("login") || htmlText.includes("e-amusement gate")) {
-                UI.error("로그인이 필요한 페이지가 감지되었습니다. (세션 만료 가능성)");
-                return [];
-            }
-
-            const diffMap = { 
-                'novice': 'NOV', 'advanced': 'ADV', 'exhaust': 'EXH', 
-                'maximum': 'MXM', 'infinite': 'INF', 'ultimate': 'ULT' 
-            };
+            const diffMap = { 'novice': 'NOV', 'advanced': 'ADV', 'exhaust': 'EXH', 'maximum': 'MXM', 'infinite': 'INF', 'ultimate': 'ULT' };
 
             rows.forEach(row => {
                 try {
@@ -129,40 +126,37 @@ const CONFIG = {
 
         // 3. 페이지 순회
         for (let i = 1; i <= maxPage; i++) {
-            UI.log(`[${i}/${maxPage}] 데이터 요청 중...`);
-            document.title = `[${i}/${maxPage}] 수집 중...`; 
+            UI.log(`[${i}/${maxPage}] 데이터 수집 중...`);
+            document.title = `[${i}/${maxPage}] 수집 중...`;
 
             let html = "";
             
             if (i === 1) {
                 html = firstPageText;
             } else {
-                try {
-                    const res = await fetch(`${baseUrl}?limit=${limit}&sort=0&page=${i}&_t=${Date.now()}`, {
-                        credentials: 'include'
-                    });
-                    
-                    if (!res.ok) {
-                        UI.error(`  -> ${i}페이지 HTTP 오류: ${res.status}`);
-                        continue;
-                    }
-                    html = await res.text();
-                } catch (fetchErr) {
-                    UI.error(`  -> ${i}페이지 네트워크 오류: ${fetchErr}`);
+                const pageUrl = `${baseUrl}?limit=${limit}&sort=0&page=${i}&_t=${Date.now()}`;
+                // 여기서도 credentials: 'include' 필수
+                const res = await fetch(pageUrl, fetchOptions);
+                
+                if (!res.ok) {
+                    UI.error(`${i}페이지 로드 실패: ${res.status}`);
                     continue;
                 }
+                html = await res.text();
+            }
+
+            // [디버깅] 각 페이지가 정상적으로 로그인 상태인지 체크
+            if (html.includes("login_form") || html.includes("Basic Course")) {
+                UI.error(`${i}페이지에서 로그인이 풀린 것으로 감지되었습니다.`);
+                continue;
             }
 
             const pData = parseRecords(html);
-            
-            // 디버깅: 각 페이지별 추출 개수 로그
             if (pData.length === 0) {
-                UI.error(`  -> ${i}페이지에서 데이터를 찾지 못했습니다. (HTML 구조 확인 필요)`);
-                // 빈 데이터가 나오면 HTML 일부를 찍어서 확인
-                // console.log(html.substring(0, 500)); 
+                UI.log(`  -> 경고: ${i}페이지 기록 0개 (파싱 실패 또는 데이터 없음)`);
             } else {
-                UI.log(`  -> ${i}페이지: ${pData.length}개 기록 추출 완료`);
                 allRecords.push(...pData);
+                UI.log(`  -> ${pData.length}개 추출 완료`);
             }
 
             if (i < maxPage) {
@@ -170,21 +164,20 @@ const CONFIG = {
             }
         }
 
-        UI.log(`총 수집된 기록 수: ${allRecords.length}`);
-
         if (allRecords.length === 0) {
-            return UI.alert("수집된 데이터가 없습니다. 콘솔(F12)을 확인해주세요.");
+            UI.alert("데이터를 하나도 수집하지 못했습니다. F12 콘솔 로그를 확인해주세요.");
+            return;
         }
 
-        // 4. CSV 생성
+        // 4. CSV 생성 및 업로드
         let csvContent = "Title,Artist,Difficulty,Score,Grade,Lamp\n";
         allRecords.forEach(r => {
             const escape = (txt) => `"${String(txt).replace(/"/g, '""')}"`;
             csvContent += `${escape(r.Title)},${escape(r.Artist)},${escape(r.Difficulty)},${escape(r.Score)},${escape(r.Grade)},${escape(r.Lamp)}\n`;
         });
 
-        // 5. GitHub 업로드
-        UI.log("GitHub에 업로드 준비 중...");
+        UI.log(`총 ${allRecords.length}개의 데이터를 GitHub에 업로드합니다.`);
+        
         const apiUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}`;
         
         let sha = "";
@@ -211,22 +204,22 @@ const CONFIG = {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                message: `Update play data (${allRecords.length} records) via Bookmarklet`,
+                message: `Update play data via Bookmarklet (${new Date().toLocaleDateString()}) - ${allRecords.length} songs`,
                 content: contentBase64,
                 sha: sha ? sha : undefined
             })
         });
 
         if (putRes.ok) {
-            UI.alert(`완료! 총 ${allRecords.length}곡 업데이트 성공.`);
+            UI.alert(`✅ 완료! 총 ${allRecords.length}곡 업데이트 성공.`);
             document.title = "완료!";
         } else {
             const errTxt = await putRes.text();
-            UI.alert(`업로드 실패: ${putRes.status}\n${errTxt}`);
+            UI.alert(`❌ 업로드 실패: ${putRes.status}\n${errTxt}`);
         }
 
     } catch (err) {
-        UI.alert(`치명적 오류 발생: ${err}`);
+        UI.alert(`🔥 치명적 오류: ${err}`);
         console.error(err);
     }
 })();
