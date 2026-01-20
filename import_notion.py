@@ -25,9 +25,10 @@ def load_and_process_data():
 
     if os.path.exists(FILE_PLAYDATA):
         df_play = pd.read_csv(FILE_PLAYDATA)
+        df_play = df_play[['Title', 'Difficulty', 'Score', 'Lamp', 'Grade']] 
     else:
         print("sdvx_playdata.csv not found. Skipping score merge.")
-        df_play = pd.DataFrame(columns=['Title', 'Difficulty', 'Score', 'Lamp'])
+        df_play = pd.DataFrame(columns=['Title', 'Difficulty', 'Score', 'Lamp', 'Grade'])
 
     difficulty_map = {
         'NOVICE': 'NOV', 'ADVANCED': 'ADV', 'EXHAUST': 'EXH', 'MAXIMUM': 'MXM', 
@@ -67,8 +68,7 @@ def upload_to_notion(df):
         level = int(row['Level']) if not pd.isna(row['Level']) else 0
         score = int(row['Score']) if not pd.isna(row['Score']) else 0
         
-        print(merged_df.columns)    
-
+        
         properties = {
             "Title": {"title": [{"text": {"content": str(row['Title'])}}]},
             "Artist": {"rich_text": [{"text": {"content": str(row['Artist'])}}]},
