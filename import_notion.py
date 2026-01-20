@@ -20,33 +20,71 @@ headers = {
 }
 
 def load_and_process_data():
+    # 1. 메인 뮤직 리스트 로드
     df_main = pd.read_csv(FILE_MUSIC_LIST)
 
-    if os.path.exists(FILE_SDVXIN):
-        df_in = pd.read_csv(FILE_SDVXIN)
-        df_in.rename(columns={'Name': 'Title', 'Link': 'SdvxIn_Link'}, inplace=True)
-        df_in = df_in[['Title', 'Difficulty', 'SdvxIn_Link']]
-    else:
-        print("sdvxin_data.csv not found. Skipping link merge.")
-        df_in = pd.DataFrame(columns=['Title', 'Difficulty', 'SdvxIn_Link'])
-
-    if os.path.exists(FILE_PLAYDATA):
-        df_play = pd.read_csv(FILE_PLAYDATA)
-        df_play = df_play[['Title', 'Difficulty', 'Score', 'Lamp', 'Grade']] 
-    else:
-        print("sdvx_playdata.csv not found. Skipping score merge.")
-        df_play = pd.DataFrame(columns=['Title', 'Difficulty', 'Score', 'Lamp', 'Grade'])
-
+    # 난이도 이름 표준화 맵 (NOVICE -> NOV 등)
     difficulty_map = {
         'NOVICE': 'NOV', 'ADVANCED': 'ADV', 'EXHAUST': 'EXH', 'MAXIMUM': 'MXM', 
         'INFINITE': 'INF', 'GRAVITY': 'GRV', 'HEAVENLY': 'HVN', 'VIVID': 'VVD',
         'EXCEED': 'XCD' 
     }
-    df_main['Difficulty'] = df_main['Difficulty'].replace(difficulty_map)
     
-    merged = pd.merge(df_main, df_in, on=['Title', 'Difficulty'], how='left')
-    merged = pd.merge(merged, df_play, on=['Title', 'Difficulty'], how='left')
+    # df_main 난이도 이름 변경
+    df_main['Difficulty'] = df_main['Difficulty'].replace(difficulty_map)
 
+    # ==========================================
+    # 빠른 테스트를 위해 NOV, ADV, EXH 제외 (테스트 할때만 사용할 것)
+    # ==========================================
+    # before_count = len(df_main)
+    # df_main = df_main[~df_main['Difficulty'].isin(['NOV', 'ADV', 'EXH'])]
+    # after_count = len(df_main)
+    # print(f"Filtering NOV/ADV/EXH: {before_count} -> {after_count} rows remaining.")
+
+    # 특수 난이도 목록 (이들은 서로 매칭될 수 있도록 처리)
+    special_diffs = ['INF', 'GRV', 'HVN', 'VVD', 'XCD']
+
+    # 매칭용 키 생성 함수
+    def get_join_diff(diff_code):
+        if diff_code in special_diffs:
+            return 'INF_VARIANT' # 특수 난이도는 모두 하나의 키로 통일
+        return diff_code
+
+    # Join Key 생성
+    df_main['Join_Diff'] = df_main['Difficulty'].apply(get_join_diff)
+
+    # 2. SDVX.in 링크 데이터 로드 및 처리
+    if os.path.exists(FILE_SDVXIN):
+        df_in = pd.read_csv(FILE_SDVXIN)
+        df_in.rename(columns={'Name': 'Title', 'Link': 'SdvxIn_Link'}, inplace=True)
+        df_in = df_in[['Title', 'Difficulty', 'SdvxIn_Link']]
+        
+        df_in['Difficulty'] = df_in['Difficulty'].replace(difficulty_map)
+        df_in['Join_Diff'] = df_in['Difficulty'].apply(get_join_diff)
+        
+        df_in = df_in.drop(columns=['Difficulty'])
+    else:
+        print("sdvxin_data.csv not found. Skipping link merge.")
+        df_in = pd.DataFrame(columns=['Title', 'Join_Diff', 'SdvxIn_Link'])
+
+    # 3. 플레이 데이터 로드 및 처리
+    if os.path.exists(FILE_PLAYDATA):
+        df_play = pd.read_csv(FILE_PLAYDATA)
+        df_play = df_play[['Title', 'Difficulty', 'Score', 'Lamp', 'Grade']]
+        
+        df_play['Difficulty'] = df_play['Difficulty'].replace(difficulty_map)
+        df_play['Join_Diff'] = df_play['Difficulty'].apply(get_join_diff)
+        
+        df_play = df_play.drop(columns=['Difficulty'])
+    else:
+        print("sdvx_playdata.csv not found. Skipping score merge.")
+        df_play = pd.DataFrame(columns=['Title', 'Join_Diff', 'Score', 'Lamp', 'Grade'])
+
+    # 4. 데이터 병합 (Title과 Join_Diff를 기준으로 병합)
+    merged = pd.merge(df_main, df_in, on=['Title', 'Join_Diff'], how='left')
+    merged = pd.merge(merged, df_play, on=['Title', 'Join_Diff'], how='left')
+
+    # 5. 결측치 채우기 및 링크 생성
     merged.fillna({'Score': 0, 'Lamp': 'No Play', 'SdvxIn_Link': ''}, inplace=True)
     
     def create_youtube_link(row):
@@ -56,16 +94,15 @@ def load_and_process_data():
 
     merged['Youtube_Link'] = merged.apply(create_youtube_link, axis=1)
 
+    merged.drop(columns=['Join_Diff'], inplace=True)
+
     merged.to_csv('final_merged_list.csv', index=False, encoding='utf-8-sig')
     print("Combined CSV created: final_merged_list.csv")
     
     return merged
 
 def fetch_existing_pages():
-    """
-    Notion 데이터베이스에 이미 존재하는 모든 페이지를 가져옵니다.
-    반환값: {(Title, Difficulty): page_id} 형태의 딕셔너리
-    """
+    """Notion에서 기존 데이터(Title, Difficulty)와 Page ID를 가져옴"""
     url = f"https://api.notion.com/v1/databases/{DATABASE_ID}/query"
     existing_pages = {}
     has_more = True
@@ -89,20 +126,15 @@ def fetch_existing_pages():
 
         for page in results:
             props = page.get("properties", {})
-            
-            # Notion에서 Title과 Difficulty 추출 (구조에 따라 수정 필요할 수 있음)
             try:
-                # Title 추출 (Title 속성 이름이 'Title'이라고 가정)
                 title_list = props.get("Title", {}).get("title", [])
                 title = title_list[0]["text"]["content"] if title_list else ""
                 
-                # Difficulty 추출 (Select 속성이라고 가정)
                 difficulty = props.get("Difficulty", {}).get("select", {}).get("name", "")
                 
                 if title and difficulty:
                     existing_pages[(title, difficulty)] = page["id"]
-            except Exception as e:
-                # 데이터 형식이 안 맞을 경우 패스
+            except Exception:
                 continue
 
         has_more = data.get("has_more", False)
@@ -112,21 +144,18 @@ def fetch_existing_pages():
     return existing_pages
 
 def sync_to_notion(df):
-    # 1. 기존 데이터 매핑 가져오기
     existing_map = fetch_existing_pages()
     
     create_url = "https://api.notion.com/v1/pages"
     
     count_create = 0
     count_update = 0
-
     total = len(df)
     
     for index, row in df.iterrows():
         level = float(row['Level']) if not pd.isna(row['Level']) else 0
         score = int(row['Score']) if not pd.isna(row['Score']) else 0
         
-        # 데이터 속성 구성
         properties = {
             "Title": {"title": [{"text": {"content": str(row['Title'])}}]},
             "Artist": {"rich_text": [{"text": {"content": str(row['Artist'])}}]},
@@ -139,15 +168,12 @@ def sync_to_notion(df):
             "SDVX.in": {"url": row['SdvxIn_Link']} if row['SdvxIn_Link'] else None
         }
         
-        # None 값 제거
         properties = {k: v for k, v in properties.items() if v is not None}
         
-        # 고유 키 생성
         key = (str(row['Title']), str(row['Difficulty']))
 
-        # 2. 업데이트 vs 생성 결정
         if key in existing_map:
-            # UPDATE (PATCH)
+            # Update Existing
             page_id = existing_map[key]
             update_url = f"https://api.notion.com/v1/pages/{page_id}"
             
@@ -160,7 +186,7 @@ def sync_to_notion(df):
             else:
                 print(f"Failed to update {row['Title']}: {response.text}")
         else:
-            # CREATE (POST)
+            # Create New
             data = {
                 "parent": {"database_id": DATABASE_ID},
                 "properties": properties
@@ -172,9 +198,6 @@ def sync_to_notion(df):
                 count_create += 1
             else:
                 print(f"Failed to create {row['Title']}: {response.text}")
-
-        # API Rate Limit 방지를 위한 아주 짧은 대기 (선택 사항)
-        # time.sleep(0.1)
 
     print(f"\nSync Complete! Created: {count_create}, Updated: {count_update}")
 
