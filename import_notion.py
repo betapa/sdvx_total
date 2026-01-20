@@ -14,8 +14,6 @@ FILE_PLAYDATA = 'sdvx_playdata.csv'
 
 def load_and_process_data():
     df_main = pd.read_csv(FILE_MUSIC_LIST)
-    
-    df_main.rename(columns={'곡 이름': 'Title', '난이도': 'Difficulty', '아티스트': 'Artist', '장르': 'Genre', '레벨': 'Level'}, inplace=True)
 
     if os.path.exists(FILE_SDVXIN):
         df_in = pd.read_csv(FILE_SDVXIN)
