@@ -9,11 +9,11 @@ from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 import pandas as pd
 
-RAW_CSV_FILENAME = "sdvx_music_list.csv"       # 1차 수집 파일 (가로형)
-FINAL_CSV_FILENAME = "sdvx_music_list_split.csv" # 최종 결과 파일 (영어 속성명 적용)
-IMAGE_DIR = "sdvx_jackets"                     # 이미지 저장 폴더명
+RAW_CSV_FILENAME = "homepage_scraper/sdvx_music_list.csv"       
+FINAL_CSV_FILENAME = "homepage_scraper/sdvx_music_list_split.csv" 
+IMAGE_DIR = "homepage_scraper/sdvx_jackets"                    
 BASE_URL = "https://p.eagate.573.jp/game/sdvx/vii/music/index.html"
-DOMAIN_URL = "https://p.eagate.573.jp"         # 이미지 경로 결합용
+DOMAIN_URL = "https://p.eagate.573.jp"        
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -70,7 +70,6 @@ def parse_music_page(session, html_text):
     
     for song in songs:
         try:
-            # === 기본 정보 추출 ===
             genre_elem = song.select_one('.genre')
             genre = genre_elem.text.strip() if genre_elem else ""
             
@@ -157,39 +156,31 @@ def process_csv_to_english_format():
         print("데이터 파일이 없어 가공을 건너뜁니다.")
         return
 
-    # 1. CSV 불러오기
     df = pd.read_csv(RAW_CSV_FILENAME)
 
-    # 2. Melt 수행 (가로 -> 세로 변환)
     df_melted = df.melt(id_vars=['Genre', 'Title', 'Artist'], 
                         value_vars=['NOV', 'ADV', 'EXH', 'MXM'], 
                         var_name='Difficulty Name', 
                         value_name='Level')
 
-    # 3. 레벨 없는 행 제거
     df_melted = df_melted.dropna(subset=['Level'])
     df_melted = df_melted[df_melted['Level'].astype(str).str.strip() != '']
 
-    # 4. 특수 난이도(INF 등) 분리 함수
     def process_difficulty(row):
         level_val = str(row['Level'])
-        # 예: "18.2 (INF)" 패턴 찾기 -> Difficulty를 INF로 변경
         match = re.search(r'([\d\.]+)\s*\((.+)\)', level_val)
         
         if match:
-            clean_level = match.group(1) # 숫자 (레벨)
-            special_diff = match.group(2) # 문자 (INF, GRV 등)
+            clean_level = match.group(1)
+            special_diff = match.group(2)
             return special_diff, clean_level
         else:
             return row['Difficulty Name'], level_val
 
-    # 함수 적용
     result_series = df_melted.apply(process_difficulty, axis=1)
     df_melted['Difficulty Name'] = [x[0] for x in result_series]
     df_melted['Level'] = [x[1] for x in result_series]
 
-    # 5. 컬럼명 변경 (요청사항 반영)
-    # 기존 컬럼 -> 요청 영어 컬럼 매핑
     rename_map = {
         'Title': 'Title',
         'Artist': 'Artist',
