@@ -10,7 +10,7 @@ from bs4 import BeautifulSoup
 import pandas as pd
 
 RAW_CSV_FILENAME = "sdvx_music_list.csv"       # 1차 수집 파일 (가로형)
-FINAL_CSV_FILENAME = "sdvx_music_list_final.csv" # 최종 결과 파일 (영어 속성명 적용)
+FINAL_CSV_FILENAME = "sdvx_music_list_split.csv" # 최종 결과 파일 (영어 속성명 적용)
 IMAGE_DIR = "sdvx_jackets"                     # 이미지 저장 폴더명
 BASE_URL = "https://p.eagate.573.jp/game/sdvx/vii/music/index.html"
 DOMAIN_URL = "https://p.eagate.573.jp"         # 이미지 경로 결합용
@@ -199,17 +199,9 @@ def process_csv_to_english_format():
     }
     df_melted = df_melted.rename(columns=rename_map)
 
-    # 6. 없는 컬럼 추가 (빈 값)
-    # Score, Lamp, Youtube, SDVX.in 추가
-    df_melted['Score'] = ""      # 숫자형(예정)
-    df_melted['Lamp'] = ""       # 선택형(예정)
-    df_melted['Youtube'] = ""    # URL
-    df_melted['SDVX.in'] = ""    # URL
-
     # 7. 컬럼 순서 재배치 (요청하신 순서대로)
     final_columns = [
-        'Title', 'Artist', 'Difficulty', 'Level', 'Genre', 
-        'Score', 'Lamp', 'Youtube', 'SDVX.in'
+        'Title', 'Artist', 'Difficulty', 'Level', 'Genre'
     ]
     
     # 만약 원본에 없는 컬럼이 있으면 에러가 나지 않도록 교집합 처리 혹은 강제 할당
