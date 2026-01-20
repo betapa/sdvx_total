@@ -8,7 +8,7 @@ import math
 NOTION_TOKEN = os.environ.get('NOTION_API_KEY')
 DATABASE_ID = os.environ.get('NOTION_DATABASE_ID')
 
-FILE_MUSIC_LIST = 'homepage_scraper/sdvx_music_list_processed.csv'
+FILE_MUSIC_LIST = 'homepage_scraper/sdvx_music_list_final.csv'
 FILE_SDVXIN = 'sdvxin_scraper/sdvxin_data.csv'
 FILE_PLAYDATA = 'sdvx_playdata.csv'
 
