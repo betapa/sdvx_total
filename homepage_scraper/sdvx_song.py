@@ -10,7 +10,7 @@ from bs4 import BeautifulSoup
 import pandas as pd
 
 RAW_CSV_FILENAME = "homepage_scraper/sdvx_music_list.csv"       
-FINAL_CSV_FILENAME = "homepage_scraper/sdvx_music_list_split.csv" 
+FINAL_CSV_FILENAME = "homepage_scraper/sdvx_music_list_final.csv" 
 IMAGE_DIR = "homepage_scraper/sdvx_jackets"                    
 BASE_URL = "https://p.eagate.573.jp/game/sdvx/vii/music/index.html"
 DOMAIN_URL = "https://p.eagate.573.jp"        
