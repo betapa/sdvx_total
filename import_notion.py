@@ -65,7 +65,7 @@ def upload_to_notion(df):
 
     count = 0
     for index, row in df.iterrows():
-        level = int(row['Level']) if not pd.isna(row['Level']) else 0
+        level = float(row['Level']) if not pd.isna(row['Level']) else 0
         score = int(row['Score']) if not pd.isna(row['Score']) else 0
         
         
