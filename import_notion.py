@@ -67,6 +67,8 @@ def upload_to_notion(df):
         level = int(row['Level']) if not pd.isna(row['Level']) else 0
         score = int(row['Score']) if not pd.isna(row['Score']) else 0
         
+        print(merged_df.columns)    
+
         properties = {
             "Title": {"title": [{"text": {"content": str(row['Title'])}}]},
             "Artist": {"rich_text": [{"text": {"content": str(row['Artist'])}}]},
