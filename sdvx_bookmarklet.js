@@ -29,31 +29,23 @@ const CONFIG = {
         const limit = 150; 
         const baseUrl = "https://p.eagate.573.jp/game/sdvx/vii/playdata/musicdata/index.html";
 
-        // ============================================================
-        // [핵심 수정 1] 쿠키 포함을 위한 공통 헤더 설정
-        // credentials: 'include'가 있어야 로그인 세션이 유지됩니다.
-        // ============================================================
         const fetchOptions = {
             method: 'GET',
-            credentials: 'include', // <--- 가장 중요한 부분 (쿠키 전송)
+            credentials: 'include',
         };
 
-        // 1. 첫 페이지 로드 및 전체 페이지 수 확인
         const firstPageUrl = `${baseUrl}?limit=${limit}&sort=0&page=1&_t=${Date.now()}`;
         const firstPageRes = await fetch(firstPageUrl, fetchOptions);
         const firstPageText = await firstPageRes.text();
         
-        // [디버깅] 첫 페이지가 로그인 페이지인지 확인
+        // 첫 페이지가 로그인 페이지인지 확인
         if (firstPageText.includes("login_form") || firstPageText.includes("ea_common_login")) {
             UI.error("세션이 만료되었거나 로그인이 풀려있습니다. e-amusement에 다시 로그인해주세요.");
             UI.alert("오류: 로그인 세션을 가져오지 못했습니다. 페이지를 새로고침 후 다시 로그인하고 시도해주세요.");
             return;
         }
 
-        // [핵심 수정 2] 페이지 수 파싱 로직 강화 (Regex 사용)
-        // DOM 파싱보다 HTML 텍스트에서 직접 'page=숫자' 패턴을 찾는 것이 더 안전합니다.
         let maxPage = 1;
-        // href="...page=12" 같은 패턴을 모두 찾아서 가장 큰 숫자를 선택
         const pageMatches = [...firstPageText.matchAll(/page=(\d+)/g)];
         if (pageMatches.length > 0) {
             const pages = pageMatches.map(m => parseInt(m[1], 10));
@@ -64,7 +56,6 @@ const CONFIG = {
 
         let allRecords = [];
 
-        // 2. 데이터 파싱 함수
         const parseRecords = (htmlText) => {
             const doc = new DOMParser().parseFromString(htmlText, 'text/html');
             const rows = doc.querySelectorAll('tr.data_col');
@@ -123,7 +114,6 @@ const CONFIG = {
             return pageData;
         };
 
-        // 3. 페이지 순회
         for (let i = 1; i <= maxPage; i++) {
             UI.log(`[${i}/${maxPage}] 데이터 수집 중...`);
             document.title = `[${i}/${maxPage}] 수집 중...`;
@@ -134,7 +124,6 @@ const CONFIG = {
                 html = firstPageText;
             } else {
                 const pageUrl = `${baseUrl}?limit=${limit}&sort=0&page=${i}&_t=${Date.now()}`;
-                // 여기서도 credentials: 'include' 필수
                 const res = await fetch(pageUrl, fetchOptions);
                 
                 if (!res.ok) {
@@ -144,7 +133,7 @@ const CONFIG = {
                 html = await res.text();
             }
 
-            // [디버깅] 각 페이지가 정상적으로 로그인 상태인지 체크
+            // 각 페이지가 정상적으로 로그인 상태인지 체크
             if (html.includes("login_form") || html.includes("Basic Course")) {
                 UI.error(`${i}페이지에서 로그인이 풀린 것으로 감지되었습니다.`);
                 continue;
@@ -168,7 +157,6 @@ const CONFIG = {
             return;
         }
 
-        // 4. CSV 생성 및 업로드
         let csvContent = "Title,Artist,Difficulty,Score,Grade,Lamp\n";
         allRecords.forEach(r => {
             const escape = (txt) => `"${String(txt).replace(/"/g, '""')}"`;
