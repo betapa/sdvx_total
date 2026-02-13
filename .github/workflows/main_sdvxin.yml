@@ -29,7 +29,7 @@ jobs:
       - name: Run SDVX.in Scraper
         working-directory: ./sdvxin_scraper
         run: |
-          python scrap.py
+          python sdvxin_scrap.py
 
       - name: Commit and push changes
         run: |
