@@ -3,6 +3,7 @@ import requests
 import re
 import time
 import csv
+import html
 from bs4 import BeautifulSoup, Comment
 
 print("SDVX 데이터 수집기 (작곡가/이펙터 추가 버전)")
@@ -30,7 +31,7 @@ DIFFICULTY_IMG_MAP = {
 
 def clean_html_to_value(html_str):
     """
-    HTML 태그 제거 및 데이터 정제
+    HTML 태그 제거 및 데이터 정제 (HTML Entity 디코딩 추가)
     """
     if not html_str:
         return "0"
@@ -43,7 +44,8 @@ def clean_html_to_value(html_str):
         else:
             text = html_str
 
-        return text.strip()
+        # [수정 2] html.unescape()로 특수문자 변환 (예: &#0252; -> ü)
+        return html.unescape(text).strip()
 
     except Exception:
         return html_str.strip()
@@ -165,7 +167,7 @@ def fetch_detail_info(session, folder, song_id, suffix):
             if info["BPM"] == "0":
                 match = bpm_pattern.search(content)
                 if match: info["BPM"] = clean_html_to_value_num(match.group(1))
-            
+              
             if info["Artist"] == "Unknown":
                 match = artist_pattern.search(content)
                 if match: info["Artist"] = extract_artist(match.group(1))
@@ -230,7 +232,9 @@ def main():
                         
                         comment = next_tag.find_next_sibling(string=lambda t: isinstance(t, Comment))
                         if not comment: continue
-                        name = comment.strip()
+                        
+                        # [수정 3] 주석에서 가져온 제목(name)의 특수문자 디코딩
+                        name = html.unescape(comment.strip()) 
                         
                         link = f"{SITE_DOMAIN}/{folder}/{part2_lower}.htm"
                         
@@ -272,7 +276,7 @@ def main():
         valid_count = 0
         
         for idx, song in enumerate(basic_songs_list):
-            if idx % 50 == 0:
+            if idx % 100 == 0:
                 print(f"[{idx}/{len(basic_songs_list)}] 처리 중...")
             
             version = VERSION_MAP.get(song["Folder"], song["Folder"])
