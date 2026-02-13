@@ -323,7 +323,7 @@ def main():
                 ]
             
             final_data.append(row)
-            time.sleep(0.05)
+            time.sleep(0.5)
 
         print(f"\n처리 완료: 기존 유지 {skipped_count}건 / 신규 수집 {new_count}건")
         
