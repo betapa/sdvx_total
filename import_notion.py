@@ -21,7 +21,7 @@ headers = {
 
 def load_and_process_data():
     # 1. 메인 뮤직 리스트 로드
-    df_main = pd.read_csv(FILE_MUSIC_LIST)
+    df_main = pd.read_csv(FILE_MUSIC_LIST, encoding='utf-8-sig')
 
     # 난이도 이름 표준화 맵
     difficulty_map = {
@@ -43,7 +43,7 @@ def load_and_process_data():
 
     # 2. SDVX.in 링크 데이터
     if os.path.exists(FILE_SDVXIN):
-        df_in = pd.read_csv(FILE_SDVXIN)
+        df_in = pd.read_csv(FILE_SDVXIN, encoding='utf-8-sig')
         df_in.rename(columns={'Name': 'Title', 'Link': 'SdvxIn_Link'}, inplace=True)
         df_in = df_in[['Title', 'Difficulty', 'SdvxIn_Link']]
         df_in['Difficulty'] = df_in['Difficulty'].replace(difficulty_map)
@@ -55,7 +55,7 @@ def load_and_process_data():
 
     # 3. 플레이 데이터
     if os.path.exists(FILE_PLAYDATA):
-        df_play = pd.read_csv(FILE_PLAYDATA)
+        df_play = pd.read_csv(FILE_PLAYDATA, encoding='utf-8-sig')
         df_play = df_play[['Title', 'Difficulty', 'Score', 'Lamp', 'Grade']]
         df_play['Difficulty'] = df_play['Difficulty'].replace(difficulty_map)
         df_play['Join_Diff'] = df_play['Difficulty'].apply(get_join_diff)
