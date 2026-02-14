@@ -84,7 +84,8 @@ def load_and_process_data():
 def fetch_existing_pages():
     """
     Notion에서 기존 데이터를 가져옵니다.
-    반환값: {(Title, Difficulty): {'id': page_id, 'props': {현재 속성값들...}}}
+    반환값: {(Title, Artist, Difficulty): {'id': page_id, 'props': {현재 속성값들...}}}
+    * 변경점: Artist를 Key에 포함시킴
     """
     url = f"https://api.notion.com/v1/databases/{DATABASE_ID}/query"
     existing_pages = {}
@@ -110,10 +111,15 @@ def fetch_existing_pages():
         for page in results:
             props = page.get("properties", {})
             try:
-                # Key 식별
+                # Key 식별 데이터 추출
                 title_list = props.get("Title", {}).get("title", [])
                 title = title_list[0]["text"]["content"] if title_list else ""
+                
                 difficulty = props.get("Difficulty", {}).get("select", {}).get("name", "")
+                
+                # [수정] Artist 정보 추출 (Rich Text)
+                artist_list = props.get("Artist", {}).get("rich_text", [])
+                artist = artist_list[0]["text"]["content"] if artist_list else ""
                 
                 if title and difficulty:
                     # 비교를 위해 현재 Notion에 저장된 값 추출
@@ -127,16 +133,18 @@ def fetch_existing_pages():
                     sdvx_url_obj = props.get("SDVX.in", {})
                     current_sdvx_url = sdvx_url_obj.get("url") if sdvx_url_obj else None
 
-                    existing_pages[(title, difficulty)] = {
+                    # [수정] Key에 Artist 포함
+                    existing_pages[(title, artist, difficulty)] = {
                         "id": page["id"],
                         "data": {
                             "Score": current_score if current_score is not None else 0,
-                            "Lamp": current_lamp, # Lamp는 'No Play'일 때 None일 수 있음
+                            "Lamp": current_lamp,
                             "Level": level if level is not None else 0,
                             "SdvxIn_Link": current_sdvx_url
                         }
                     }
             except Exception as e:
+                # 데이터 파싱 중 에러 발생 시 해당 항목 건너뜀
                 continue
 
         has_more = data.get("has_more", False)
@@ -160,21 +168,18 @@ def sync_to_notion(df):
     for index, row in df.iterrows():
         # 데이터 정제
         title = str(row['Title'])
+        artist = str(row['Artist']) # [수정] Artist 변수 확보
         difficulty = str(row['Difficulty'])
         level = float(row['Level']) if not pd.isna(row['Level']) else 0
         score = int(row['Score']) if not pd.isna(row['Score']) else 0
         lamp = str(row['Lamp'])
-        
-        # 'No Play'는 Notion에 None(빈 값)으로 들어가는지 확인 필요
-        # 로직: CSV의 'No Play' -> Notion Payload의 None -> Notion 저장 시 비어있음
-        # 비교 시: CSV 'No Play'와 Notion None을 같다고 처리해야 함
         
         sdvx_link = row['SdvxIn_Link'] if row['SdvxIn_Link'] else None
         
         # Notion Payload 구성 (업데이트/생성 공통)
         properties = {
             "Title": {"title": [{"text": {"content": title}}]},
-            "Artist": {"rich_text": [{"text": {"content": str(row['Artist'])}}]},
+            "Artist": {"rich_text": [{"text": {"content": artist}}]},
             "Difficulty": {"select": {"name": difficulty}},
             "Level": {"number": level},
             "Genre": {"select": {"name": str(row['Genre'])}} if row['Genre'] else None,
@@ -184,22 +189,19 @@ def sync_to_notion(df):
             "SDVX.in": {"url": sdvx_link}
         }
         
-        # None인 필드 제거 (API 에러 방지)
+        # None인 필드 제거
         properties = {k: v for k, v in properties.items() if v is not None}
         
-        key = (title, difficulty)
+        # [수정] Key 생성 시 Artist 포함 (Title, Artist, Difficulty)
+        key = (title, artist, difficulty)
 
         if key in existing_map:
             # === 변경 사항 체크 로직 ===
             existing_data = existing_map[key]['data']
             page_id = existing_map[key]['id']
             
-            # 비교할 로컬 변수 준비
-            # CSV의 'No Play'는 Notion의 None과 매칭되어야 함
             local_lamp_check = lamp if lamp != 'No Play' else None 
             
-            # 실제 값 비교 (점수, 램프, 레벨, 링크 중 하나라도 다르면 업데이트)
-            # 주의: 부동소수점 비교 등을 위해 타입 통일 필요하지만, 여기선 기본형 비교
             is_different = False
             
             if existing_data['Score'] != score:
@@ -211,10 +213,8 @@ def sync_to_notion(df):
             elif existing_data['SdvxIn_Link'] != sdvx_link:
                 is_different = True
             
-            # 변경사항이 없으면 건너뜀
             if not is_different:
                 count_skip += 1
-                # 진행 상황을 너무 많이 출력하면 느리므로 100개 단위 혹은 생략
                 if index % 100 == 0:
                     print(f"[{index+1}/{total}] Skipped (No changes): {title}")
                 continue
@@ -225,7 +225,7 @@ def sync_to_notion(df):
             response = requests.patch(update_url, headers=headers, data=json.dumps(data))
             
             if response.status_code == 200:
-                print(f"[{index+1}/{total}] Updated: {title} ({difficulty})")
+                print(f"[{index+1}/{total}] Updated: {title} - {artist} ({difficulty})")
                 count_update += 1
             else:
                 print(f"Failed to update {title}: {response.text}")
@@ -239,7 +239,7 @@ def sync_to_notion(df):
             response = requests.post(create_url, headers=headers, data=json.dumps(data))
             
             if response.status_code == 200:
-                print(f"[{index+1}/{total}] Created: {title} ({difficulty})")
+                print(f"[{index+1}/{total}] Created: {title} - {artist} ({difficulty})")
                 count_create += 1
             else:
                 print(f"Failed to create {title}: {response.text}")
