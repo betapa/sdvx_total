@@ -1,7 +1,7 @@
 const CONFIG = {
-    owner: 'gil-dong', // 사용자에 맞게 수정
-    repo: 'sdvx-data', // 사용자에 맞게 수정
-    path: '저장할 파일명.csv' // 사용자에 맞게 수정
+    owner: 'betapa', // 사용자에 맞게 수정
+    repo: 'sdvx_total', // 사용자에 맞게 수정
+    path: 'sdvx_playdata.csv' // 사용자에 맞게 수정
 };
 
 (async function() {
