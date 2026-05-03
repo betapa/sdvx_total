@@ -31,3 +31,13 @@ jobs:
           NOTION_API_KEY: ${{ secrets.NOTION_API_KEY }}
           NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
         run: python -u import_notion.py
+
+      - name: Commit and push generated CSV
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add sdvx_final_merged.csv
+          
+          # 파일에 변경사항이 있을 경우에만 커밋 및 푸시 진행
+          # [skip ci] 태그를 달아서 이 푸시로 인해 Action이 다시 무한루프 도는 것을 방지합니다.
+          git diff --quiet && git diff --staged --quiet || (git commit -m "chore: auto-generate merged csv [skip ci]" && git push)
