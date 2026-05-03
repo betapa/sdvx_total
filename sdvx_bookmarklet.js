@@ -1,10 +1,11 @@
 const CONFIG = {
-    owner: 'betapa',
-    repo: 'sdvx_total',
-    path: 'userdata_scraper/sdvx_playdata.csv'
+    owner: 'gil-dong', // 사용자에 맞게 수정
+    repo: 'sdvx-data', // 사용자에 맞게 수정
+    path: '저장할 파일명.csv' // 사용자에 맞게 수정
 };
 
 (async function() {
+    // 0. 토큰 확인
     let token = localStorage.getItem('GH_TOKEN');
     if (!token) {
         token = prompt("GitHub Personal Access Token을 입력해주세요.\n(repo 권한 필요)");
@@ -34,11 +35,11 @@ const CONFIG = {
             credentials: 'include',
         };
 
+        // 1. 첫 페이지 로드 및 전체 페이지 수 확인
         const firstPageUrl = `${baseUrl}?limit=${limit}&sort=0&page=1&_t=${Date.now()}`;
         const firstPageRes = await fetch(firstPageUrl, fetchOptions);
         const firstPageText = await firstPageRes.text();
         
-        // 첫 페이지가 로그인 페이지인지 확인
         if (firstPageText.includes("login_form") || firstPageText.includes("ea_common_login")) {
             UI.error("세션이 만료되었거나 로그인이 풀려있습니다. e-amusement에 다시 로그인해주세요.");
             UI.alert("오류: 로그인 세션을 가져오지 못했습니다. 페이지를 새로고침 후 다시 로그인하고 시도해주세요.");
@@ -56,12 +57,16 @@ const CONFIG = {
 
         let allRecords = [];
 
+        // 2. 데이터 파싱 함수
         const parseRecords = (htmlText) => {
             const doc = new DOMParser().parseFromString(htmlText, 'text/html');
             const rows = doc.querySelectorAll('tr.data_col');
             const pageData = [];
 
-            const diffMap = { 'novice': 'NOV', 'advanced': 'ADV', 'exhaust': 'EXH', 'maximum': 'MXM', 'infinite': 'INF', 'ultimate': 'ULT' };
+            // ============================================================
+            // [핵심 수정 3] HTML 구조 변경에 따른 난이도 클래스명 약자 매핑
+            // ============================================================
+            const diffMap = { 'nov': 'NOV', 'adv': 'ADV', 'exh': 'EXH', 'mxm': 'MXM', 'inf': 'INF', 'ult': 'ULT' };
 
             rows.forEach(row => {
                 try {
@@ -77,7 +82,8 @@ const CONFIG = {
                         if (!td) continue;
 
                         const scoreText = td.textContent.trim();
-                        if (scoreText === '0') continue;
+                        // 점수가 없거나 0점인 경우 건너뜀
+                        if (scoreText === '0' || !scoreText) continue;
 
                         let lamp = "PLAYED";
                         const markImg = td.querySelector('img[src*="mark"]');
@@ -114,6 +120,7 @@ const CONFIG = {
             return pageData;
         };
 
+        // 3. 페이지 순회
         for (let i = 1; i <= maxPage; i++) {
             UI.log(`[${i}/${maxPage}] 데이터 수집 중...`);
             document.title = `[${i}/${maxPage}] 수집 중...`;
@@ -133,7 +140,6 @@ const CONFIG = {
                 html = await res.text();
             }
 
-            // 각 페이지가 정상적으로 로그인 상태인지 체크
             if (html.includes("login_form") || html.includes("Basic Course")) {
                 UI.error(`${i}페이지에서 로그인이 풀린 것으로 감지되었습니다.`);
                 continue;
@@ -157,6 +163,7 @@ const CONFIG = {
             return;
         }
 
+        // 4. CSV 생성 및 업로드
         let csvContent = "Title,Artist,Difficulty,Score,Grade,Lamp\n";
         allRecords.forEach(r => {
             const escape = (txt) => `"${String(txt).replace(/"/g, '""')}"`;
