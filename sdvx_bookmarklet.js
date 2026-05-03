@@ -47,13 +47,35 @@ const CONFIG = {
         }
 
         let maxPage = 1;
-        const pageMatches = [...firstPageText.matchAll(/page=(\d+)/g)];
-        if (pageMatches.length > 0) {
-            const pages = pageMatches.map(m => parseInt(m[1], 10));
-            maxPage = Math.max(...pages);
+        
+        // 1. 가져온 HTML 텍스트를 DOM 객체로 변환
+        const firstDoc = new DOMParser().parseFromString(firstPageText, 'text/html');
+        
+        // 2. 코나미 사이트에서 자주 쓰이는 <select> 드롭다운 방식에서 페이지 수 탐색
+        const pageOptions = firstDoc.querySelectorAll('select[name="page"] option, select#page option');
+        if (pageOptions.length > 0) {
+            maxPage = pageOptions.length;
+        } else {
+            // 3. <a> 태그의 href 속성에서 page 값 탐색
+            const pageLinks = firstDoc.querySelectorAll('a[href*="page="]');
+            pageLinks.forEach(a => {
+                const match = a.href.match(/page=(\d+)/);
+                if (match) {
+                    const p = parseInt(match[1], 10);
+                    if (p > maxPage) maxPage = p;
+                }
+            });
+        
+            // 4. 그래도 찾지 못했다면 기존 정규식 방식을 보완하여 적용
+            const pageMatches = [...firstPageText.matchAll(/page=(\d+)/g)];
+            if (pageMatches.length > 0) {
+                const pages = pageMatches.map(m => parseInt(m[1], 10));
+                maxPage = Math.max(maxPage, ...pages);
+            }
         }
-
-        UI.log(`총 ${maxPage} 페이지를 발견했습니다. (파싱된 페이지: ${maxPage})`);
+        
+        // (선택) 디버깅을 위해 콘솔에 계산된 maxPage 출력
+        console.log(`[SDVX Debug] 파싱된 전체 페이지 수: ${maxPage}`);
 
         let allRecords = [];
 
