@@ -1,7 +1,16 @@
-javascript:(async function() {
-    // [필수 수정] 본인의 Cloudflare Worker 주소로 변경해주세요.
-    // 예: "https://sdvx-updater.betapa.workers.dev"
-    const WORKER_URL = "https://sdvx-updater.kangth2103.workers.dev";
+const CONFIG = {
+    owner: 'betapa',
+    repo: 'sdvx_total',
+    path: 'userdata_scraper/sdvx_playdata.csv'
+};
+
+(async function() {
+    let token = localStorage.getItem('GH_TOKEN');
+    if (!token) {
+        token = prompt("GitHub Personal Access Token을 입력해주세요.\n(repo 권한 필요)");
+        if (!token) return alert("토큰이 없어 취소합니다.");
+        localStorage.setItem('GH_TOKEN', token);
+    }
 
     const UI = {
         log: (msg) => console.log(`[SDVX] ${msg}`),
@@ -25,11 +34,11 @@ javascript:(async function() {
             credentials: 'include',
         };
 
-        // 1. 첫 페이지 로드 및 전체 페이지 수 확인
         const firstPageUrl = `${baseUrl}?limit=${limit}&sort=0&page=1&_t=${Date.now()}`;
         const firstPageRes = await fetch(firstPageUrl, fetchOptions);
         const firstPageText = await firstPageRes.text();
         
+        // 첫 페이지가 로그인 페이지인지 확인
         if (firstPageText.includes("login_form") || firstPageText.includes("ea_common_login")) {
             UI.error("세션이 만료되었거나 로그인이 풀려있습니다. e-amusement에 다시 로그인해주세요.");
             UI.alert("오류: 로그인 세션을 가져오지 못했습니다. 페이지를 새로고침 후 다시 로그인하고 시도해주세요.");
@@ -37,40 +46,22 @@ javascript:(async function() {
         }
 
         let maxPage = 1;
-        
-        const firstDoc = new DOMParser().parseFromString(firstPageText, 'text/html');
-        
-        const pageOptions = firstDoc.querySelectorAll('select[name="page"] option, select#page option');
-        if (pageOptions.length > 0) {
-            maxPage = pageOptions.length;
-        } else {
-            const pageLinks = firstDoc.querySelectorAll('a[href*="page="]');
-            pageLinks.forEach(a => {
-                const match = a.href.match(/page=(\d+)/);
-                if (match) {
-                    const p = parseInt(match[1], 10);
-                    if (p > maxPage) maxPage = p;
-                }
-            });
-        
-            const pageMatches = [...firstPageText.matchAll(/page=(\d+)/g)];
-            if (pageMatches.length > 0) {
-                const pages = pageMatches.map(m => parseInt(m[1], 10));
-                maxPage = Math.max(maxPage, ...pages);
-            }
+        const pageMatches = [...firstPageText.matchAll(/page=(\d+)/g)];
+        if (pageMatches.length > 0) {
+            const pages = pageMatches.map(m => parseInt(m[1], 10));
+            maxPage = Math.max(...pages);
         }
-        
-        console.log(`[SDVX Debug] 파싱된 전체 페이지 수: ${maxPage}`);
+
+        UI.log(`총 ${maxPage} 페이지를 발견했습니다. (파싱된 페이지: ${maxPage})`);
 
         let allRecords = [];
 
-        // 2. 데이터 파싱 함수
         const parseRecords = (htmlText) => {
             const doc = new DOMParser().parseFromString(htmlText, 'text/html');
             const rows = doc.querySelectorAll('tr.data_col');
             const pageData = [];
 
-            const diffMap = { 'nov': 'NOV', 'adv': 'ADV', 'exh': 'EXH', 'mxm': 'MXM', 'inf': 'INF', 'ult': 'ULT' };
+            const diffMap = { 'novice': 'NOV', 'advanced': 'ADV', 'exhaust': 'EXH', 'maximum': 'MXM', 'infinite': 'INF', 'ultimate': 'ULT' };
 
             rows.forEach(row => {
                 try {
@@ -86,7 +77,7 @@ javascript:(async function() {
                         if (!td) continue;
 
                         const scoreText = td.textContent.trim();
-                        if (scoreText === '0' || !scoreText) continue;
+                        if (scoreText === '0') continue;
 
                         let lamp = "PLAYED";
                         const markImg = td.querySelector('img[src*="mark"]');
@@ -123,7 +114,6 @@ javascript:(async function() {
             return pageData;
         };
 
-        // 3. 페이지 순회
         for (let i = 1; i <= maxPage; i++) {
             UI.log(`[${i}/${maxPage}] 데이터 수집 중...`);
             document.title = `[${i}/${maxPage}] 수집 중...`;
@@ -143,6 +133,7 @@ javascript:(async function() {
                 html = await res.text();
             }
 
+            // 각 페이지가 정상적으로 로그인 상태인지 체크
             if (html.includes("login_form") || html.includes("Basic Course")) {
                 UI.error(`${i}페이지에서 로그인이 풀린 것으로 감지되었습니다.`);
                 continue;
@@ -166,24 +157,43 @@ javascript:(async function() {
             return;
         }
 
-        // 4. CSV 생성
         let csvContent = "Title,Artist,Difficulty,Score,Grade,Lamp\n";
         allRecords.forEach(r => {
             const escape = (txt) => `"${String(txt).replace(/"/g, '""')}"`;
             csvContent += `${escape(r.Title)},${escape(r.Artist)},${escape(r.Difficulty)},${escape(r.Score)},${escape(r.Grade)},${escape(r.Lamp)}\n`;
         });
 
-        UI.log(`총 ${allRecords.length}개의 데이터를 중계 서버로 전송합니다.`);
+        UI.log(`총 ${allRecords.length}개의 데이터를 GitHub에 업로드합니다.`);
         
-        // 5. Cloudflare Worker를 통한 GitHub 업로드
-        const putRes = await fetch(WORKER_URL, {
-            method: 'POST',
+        const apiUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}`;
+        
+        let sha = "";
+        try {
+            const getRes = await fetch(apiUrl, {
+                headers: { 'Authorization': `token ${token}` }
+            });
+            if (getRes.ok) {
+                const getData = await getRes.json();
+                sha = getData.sha;
+            }
+        } catch(e) {}
+
+        const utf8Encoder = new TextEncoder();
+        const csvBytes = utf8Encoder.encode(csvContent);
+        let binaryString = "";
+        csvBytes.forEach(byte => binaryString += String.fromCharCode(byte));
+        const contentBase64 = btoa(binaryString);
+
+        const putRes = await fetch(apiUrl, {
+            method: 'PUT',
             headers: {
+                'Authorization': `token ${token}`,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                commitMessage: `Update play data via Bookmarklet (${new Date().toLocaleDateString()}) - ${allRecords.length} songs`,
-                csvContent: csvContent
+                message: `Update play data via Bookmarklet (${new Date().toLocaleDateString()}) - ${allRecords.length} songs`,
+                content: contentBase64,
+                sha: sha ? sha : undefined
             })
         });
 
@@ -192,7 +202,7 @@ javascript:(async function() {
             document.title = "완료!";
         } else {
             const errTxt = await putRes.text();
-            UI.alert(`❌ 서버 업로드 실패: ${putRes.status}\n${errTxt}`);
+            UI.alert(`❌ 업로드 실패: ${putRes.status}\n${errTxt}`);
         }
 
     } catch (err) {
