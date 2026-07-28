@@ -1,7 +1,7 @@
 javascript:(async function() {
     // [필수 수정] 본인의 Cloudflare Worker 주소로 변경해주세요.
     // 예: "https://sdvx-updater.betapa.workers.dev"
-    const WORKER_URL = "https://나의-워커-이름.나의-서브도메인.workers.dev";
+    const WORKER_URL = "https://sdvx-updater.kangth2103.workers.dev";
 
     const UI = {
         log: (msg) => console.log(`[SDVX] ${msg}`),
