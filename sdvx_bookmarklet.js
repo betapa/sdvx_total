@@ -1,17 +1,7 @@
-const CONFIG = {
-    owner: 'betapa', // 사용자에 맞게 수정
-    repo: 'sdvx_total', // 사용자에 맞게 수정
-    path: 'sdvx_playdata.csv' // 사용자에 맞게 수정
-};
-
-(async function() {
-    // 0. 토큰 확인
-    let token = localStorage.getItem('GH_TOKEN');
-    if (!token) {
-        token = prompt("GitHub Personal Access Token을 입력해주세요.\n(repo 권한 필요)");
-        if (!token) return alert("토큰이 없어 취소합니다.");
-        localStorage.setItem('GH_TOKEN', token);
-    }
+javascript:(async function() {
+    // [필수 수정] 본인의 Cloudflare Worker 주소로 변경해주세요.
+    // 예: "https://sdvx-updater.betapa.workers.dev"
+    const WORKER_URL = "https://나의-워커-이름.나의-서브도메인.workers.dev";
 
     const UI = {
         log: (msg) => console.log(`[SDVX] ${msg}`),
@@ -48,15 +38,12 @@ const CONFIG = {
 
         let maxPage = 1;
         
-        // 1. 가져온 HTML 텍스트를 DOM 객체로 변환
         const firstDoc = new DOMParser().parseFromString(firstPageText, 'text/html');
         
-        // 2. 코나미 사이트에서 자주 쓰이는 <select> 드롭다운 방식에서 페이지 수 탐색
         const pageOptions = firstDoc.querySelectorAll('select[name="page"] option, select#page option');
         if (pageOptions.length > 0) {
             maxPage = pageOptions.length;
         } else {
-            // 3. <a> 태그의 href 속성에서 page 값 탐색
             const pageLinks = firstDoc.querySelectorAll('a[href*="page="]');
             pageLinks.forEach(a => {
                 const match = a.href.match(/page=(\d+)/);
@@ -66,7 +53,6 @@ const CONFIG = {
                 }
             });
         
-            // 4. 그래도 찾지 못했다면 기존 정규식 방식을 보완하여 적용
             const pageMatches = [...firstPageText.matchAll(/page=(\d+)/g)];
             if (pageMatches.length > 0) {
                 const pages = pageMatches.map(m => parseInt(m[1], 10));
@@ -74,7 +60,6 @@ const CONFIG = {
             }
         }
         
-        // (선택) 디버깅을 위해 콘솔에 계산된 maxPage 출력
         console.log(`[SDVX Debug] 파싱된 전체 페이지 수: ${maxPage}`);
 
         let allRecords = [];
@@ -85,9 +70,6 @@ const CONFIG = {
             const rows = doc.querySelectorAll('tr.data_col');
             const pageData = [];
 
-            // ============================================================
-            // [핵심 수정 3] HTML 구조 변경에 따른 난이도 클래스명 약자 매핑
-            // ============================================================
             const diffMap = { 'nov': 'NOV', 'adv': 'ADV', 'exh': 'EXH', 'mxm': 'MXM', 'inf': 'INF', 'ult': 'ULT' };
 
             rows.forEach(row => {
@@ -104,7 +86,6 @@ const CONFIG = {
                         if (!td) continue;
 
                         const scoreText = td.textContent.trim();
-                        // 점수가 없거나 0점인 경우 건너뜀
                         if (scoreText === '0' || !scoreText) continue;
 
                         let lamp = "PLAYED";
@@ -185,44 +166,24 @@ const CONFIG = {
             return;
         }
 
-        // 4. CSV 생성 및 업로드
+        // 4. CSV 생성
         let csvContent = "Title,Artist,Difficulty,Score,Grade,Lamp\n";
         allRecords.forEach(r => {
             const escape = (txt) => `"${String(txt).replace(/"/g, '""')}"`;
             csvContent += `${escape(r.Title)},${escape(r.Artist)},${escape(r.Difficulty)},${escape(r.Score)},${escape(r.Grade)},${escape(r.Lamp)}\n`;
         });
 
-        UI.log(`총 ${allRecords.length}개의 데이터를 GitHub에 업로드합니다.`);
+        UI.log(`총 ${allRecords.length}개의 데이터를 중계 서버로 전송합니다.`);
         
-        const apiUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}`;
-        
-        let sha = "";
-        try {
-            const getRes = await fetch(apiUrl, {
-                headers: { 'Authorization': `token ${token}` }
-            });
-            if (getRes.ok) {
-                const getData = await getRes.json();
-                sha = getData.sha;
-            }
-        } catch(e) {}
-
-        const utf8Encoder = new TextEncoder();
-        const csvBytes = utf8Encoder.encode(csvContent);
-        let binaryString = "";
-        csvBytes.forEach(byte => binaryString += String.fromCharCode(byte));
-        const contentBase64 = btoa(binaryString);
-
-        const putRes = await fetch(apiUrl, {
-            method: 'PUT',
+        // 5. Cloudflare Worker를 통한 GitHub 업로드
+        const putRes = await fetch(WORKER_URL, {
+            method: 'POST',
             headers: {
-                'Authorization': `token ${token}`,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                message: `Update play data via Bookmarklet (${new Date().toLocaleDateString()}) - ${allRecords.length} songs`,
-                content: contentBase64,
-                sha: sha ? sha : undefined
+                commitMessage: `Update play data via Bookmarklet (${new Date().toLocaleDateString()}) - ${allRecords.length} songs`,
+                csvContent: csvContent
             })
         });
 
@@ -231,7 +192,7 @@ const CONFIG = {
             document.title = "완료!";
         } else {
             const errTxt = await putRes.text();
-            UI.alert(`❌ 업로드 실패: ${putRes.status}\n${errTxt}`);
+            UI.alert(`❌ 서버 업로드 실패: ${putRes.status}\n${errTxt}`);
         }
 
     } catch (err) {
